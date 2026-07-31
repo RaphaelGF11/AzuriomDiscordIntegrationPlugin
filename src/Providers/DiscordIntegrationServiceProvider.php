@@ -4,15 +4,21 @@ namespace Azuriom\Plugin\DiscordIntegration\Providers;
 
 use Azuriom\Extensions\Plugin\BasePluginServiceProvider;
 use Azuriom\Http\Middleware\CheckForMaintenanceSettings;
+use Azuriom\Http\Middleware\SocialiteLogin;
 use Azuriom\Models\DiscordAccount;
 use Azuriom\Models\Permission;
 use Azuriom\Models\User;
+use Azuriom\Plugin\DiscordIntegration\Console\Commands\GatewayCommand;
+use Azuriom\Plugin\DiscordIntegration\Console\Commands\InstallGatewayServiceCommand;
 use Azuriom\Plugin\DiscordIntegration\Console\Commands\SyncDiscordRolesCommand;
 use Azuriom\Plugin\DiscordIntegration\Support\DiscordCredentials;
 use Azuriom\Plugin\DiscordIntegration\Support\DiscordIntegrationProfileCard;
 use Azuriom\Plugin\DiscordIntegration\Support\DiscordOnlyAwareUserProvider;
+use Azuriom\Plugin\DiscordIntegration\Support\DiscordPasswordless;
+use Azuriom\Plugin\DiscordIntegration\Support\ForceDiscordAuthMiddleware;
 use Azuriom\Plugin\DiscordIntegration\Support\MaintenanceBypassMiddleware;
 use Azuriom\Plugin\DiscordIntegration\Support\RoleSyncEvaluator;
+use Azuriom\Plugin\DiscordIntegration\Support\SsoOrDiscordMiddleware;
 use Azuriom\Socialite\DiscordProvider;
 use Azuriom\Support\Discord\LinkedRoles;
 use Illuminate\Console\Scheduling\Schedule;
@@ -82,13 +88,13 @@ class DiscordIntegrationServiceProvider extends BasePluginServiceProvider
 
         $this->registerPasswordLoginGuard();
 
-        $this->registerPasswordSync();
-
-        $this->registerLinkPasswordSync();
-
         $this->registerSocialiteDriver();
 
         $this->registerMaintenanceBypass();
+
+        $this->registerSsoChoice();
+
+        $this->registerForceAuthMiddleware();
 
         $this->registerRoleSync();
 
@@ -145,6 +151,10 @@ class DiscordIntegrationServiceProvider extends BasePluginServiceProvider
                     'discord-integration.admin.configuration' => trans('discord-integration::admin.nav.configuration'),
                     'discord-integration.admin.authentication' => trans('discord-integration::admin.nav.authentication'),
                     'discord-integration.admin.roles' => trans('discord-integration::admin.nav.roles'),
+                    'discord-integration.admin.links' => trans('discord-integration::admin.nav.links'),
+                    'discord-integration.admin.commands' => trans('discord-integration::admin.nav.interactions'),
+                    'discord-integration.admin.messages' => trans('discord-integration::admin.nav.messages'),
+                    'discord-integration.admin.gateway' => trans('discord-integration::admin.nav.gateway'),
                 ],
             ],
         ];
@@ -197,6 +207,10 @@ class DiscordIntegrationServiceProvider extends BasePluginServiceProvider
     /**
      * Prevent unlinking a Discord account that has no custom password set,
      * since that account would otherwise become impossible to log into.
+     * Also gives back any role-sync roles the plugin granted this Discord
+     * user (see RoleSyncEvaluator::revokeGrantedRoles()) once unlinking is
+     * actually going to proceed - being linked was the whole point of those
+     * conditions, so they shouldn't outlive the link.
      *
      * Covers the core profile-unlink flow (Azuriom\Http\Controllers\ProfileController::unlinkDiscord)
      * since it just calls delete() on the DiscordAccount model.
@@ -204,11 +218,13 @@ class DiscordIntegrationServiceProvider extends BasePluginServiceProvider
     protected function registerUnlinkGuard(): void
     {
         DiscordAccount::deleting(function (DiscordAccount $account) {
-            if (! $account->has_custom_password) {
+            if (DiscordPasswordless::isPasswordless($account->user)) {
                 throw new HttpResponseException(
                     to_route('profile.index')->with('error', trans('discord-integration::messages.profile.unlink_locked'))
                 );
             }
+
+            $this->app->make(RoleSyncEvaluator::class)->revokeGrantedRoles($account->discord_user_id);
         });
     }
 
@@ -219,7 +235,8 @@ class DiscordIntegrationServiceProvider extends BasePluginServiceProvider
      *
      * Deletes directly through the query builder (not the Eloquent model) so this
      * bypasses the "unlink" guard above, which shouldn't apply here: the account
-     * is gone either way, there's no risk of locking the (deleted) user out.
+     * is gone either way, there's no risk of locking the (deleted) user out - but
+     * that also means the granted-roles cleanup it does has to be repeated here.
      */
     protected function registerAccountDeletionCleanup(): void
     {
@@ -232,6 +249,7 @@ class DiscordIntegrationServiceProvider extends BasePluginServiceProvider
 
             try {
                 LinkedRoles::clearRole($account);
+                $this->app->make(RoleSyncEvaluator::class)->revokeGrantedRoles($account->discord_user_id);
             } catch (Throwable $e) {
                 report($e);
             }
@@ -258,69 +276,6 @@ class DiscordIntegrationServiceProvider extends BasePluginServiceProvider
     }
 
     /**
-     * Mark a Discord account as having a custom password as soon as its
-     * user's password is actually changed, regardless of which flow did it
-     * (admin edit at /admin/users/{id}/edit, forgot-password reset, this
-     * plugin's own profile "set a password" action, ...). Otherwise a
-     * password set this way would work, but the account would still be
-     * treated as passwordless everywhere else (login guard, unlink guard,
-     * profile views).
-     *
-     * Also clears users.discord_integration_passwordless, the flag that survives a
-     * forced admin unlink of a passwordless account (see
-     * Admin\UserController::forceUnlinkDiscord()) after its discord_accounts
-     * row is gone - saved quietly to avoid re-triggering this same listener.
-     */
-    protected function registerPasswordSync(): void
-    {
-        User::saved(function (User $user) {
-            if (! $user->wasChanged('password')) {
-                return;
-            }
-
-            if ($user->discord_integration_passwordless) {
-                $user->forceFill(['discord_integration_passwordless' => false])->saveQuietly();
-            }
-
-            $account = $user->discordAccount;
-
-            if ($account !== null && ! $account->has_custom_password) {
-                $account->forceFill(['has_custom_password' => true])->save();
-            }
-        });
-    }
-
-    /**
-     * Mirror users.discord_integration_passwordless onto any *new* discord_accounts
-     * row's has_custom_password, in the other direction from registerPasswordSync()
-     * above.
-     *
-     * This plugin's own register() already sets has_custom_password correctly
-     * on the row it creates. But a new row can also be created by the core
-     * profile Discord-link flow (Azuriom\Http\Controllers\ProfileController),
-     * which knows nothing about this plugin's passwordless concept and always
-     * defaults has_custom_password to true (the migration's column default -
-     * correct for the common case of linking Discord to an account that
-     * already has a real password). Without this, re-linking Discord to a
-     * still-passwordless account (e.g. after a forced admin unlink, see
-     * Admin\UserController::forceUnlinkDiscord()) would wrongly mark it as
-     * having a custom password again, defeating the login guard, unlink
-     * guard and profile views that rely on that flag.
-     *
-     * Uses "creating" (not "saving") so this never re-evaluates on ordinary
-     * token-refresh saves() of an *existing* row, which could otherwise wipe
-     * out a legitimate has_custom_password=true set later by registerPasswordSync().
-     */
-    protected function registerLinkPasswordSync(): void
-    {
-        DiscordAccount::creating(function (DiscordAccount $account) {
-            if ($account->user?->discord_integration_passwordless) {
-                $account->has_custom_password = false;
-            }
-        });
-    }
-
-    /**
      * Let the plugin's own routes through the core's global maintenance
      * middleware when the "bypass maintenance" setting is enabled - that
      * middleware blocks every route by default, including these, well before
@@ -329,6 +284,31 @@ class DiscordIntegrationServiceProvider extends BasePluginServiceProvider
     protected function registerMaintenanceBypass(): void
     {
         $this->app->bind(CheckForMaintenanceSettings::class, MaintenanceBypassMiddleware::class);
+    }
+
+    /**
+     * Same swap-the-binding trick as registerMaintenanceBypass() above, this
+     * time for core's SocialiteLogin middleware ('login.socialite', applied
+     * to /login and /register), so a site using SSO can still offer Discord
+     * login instead of core silently redirecting to the SSO provider before
+     * this plugin's buttons are ever reached.
+     */
+    protected function registerSsoChoice(): void
+    {
+        $this->app->bind(SocialiteLogin::class, SsoOrDiscordMiddleware::class);
+    }
+
+    /**
+     * Pushes ForceDiscordAuthMiddleware onto the 'web' middleware group
+     * rather than the plugin's own global $middleware stack: that stack runs
+     * ahead of routing (see Illuminate\Foundation\Http\Kernel::sendRequestThroughRouter()),
+     * so $request->routeIs() - which the middleware relies on - would never
+     * see a resolved route there. Group middleware runs after routing, same
+     * as core's own route-scoped middleware.
+     */
+    protected function registerForceAuthMiddleware(): void
+    {
+        $this->router->pushMiddlewareToGroup('web', ForceDiscordAuthMiddleware::class);
     }
 
     /**
@@ -356,7 +336,12 @@ class DiscordIntegrationServiceProvider extends BasePluginServiceProvider
         }
 
         if ($this->app->runningInConsole()) {
-            $this->commands([SyncDiscordRolesCommand::class]);
+            // GatewayCommand isn't part of role sync per se, but it's the
+            // plugin's only other console command and this is the plugin's
+            // single runningInConsole() block - see the command's own
+            // docblock for what it does (and that it's meant for systemd,
+            // not the scheduler).
+            $this->commands([SyncDiscordRolesCommand::class, GatewayCommand::class, InstallGatewayServiceCommand::class]);
         }
 
         $this->app->booted(function () {

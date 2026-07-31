@@ -3,9 +3,9 @@
 namespace Azuriom\Plugin\DiscordIntegration\Support;
 
 use Azuriom\Models\User;
+use Azuriom\Plugin\DiscordIntegration\Models\RoleGrant;
 use Azuriom\Plugin\DiscordIntegration\Models\RoleSync;
-use Azuriom\Plugin\Shop\Models\PaymentItem;
-use Azuriom\Plugin\Shop\Models\Subscription;
+use Azuriom\Plugin\DiscordIntegration\Support\Concerns\ChecksShopPackageOwnership;
 use Illuminate\Support\Collection;
 
 /**
@@ -15,6 +15,8 @@ use Illuminate\Support\Collection;
  */
 class RoleSyncEvaluator
 {
+    use ChecksShopPackageOwnership;
+
     /**
      * The rules a user currently matches (every condition set on a rule is
      * ANDed; a rule with no conditions at all matches everyone).
@@ -48,33 +50,6 @@ class RoleSyncEvaluator
     }
 
     /**
-     * Whether the user currently owns an active subscription to, or a
-     * non-expired one-time purchase of, the given shop package. Always false
-     * if the (optional) shop plugin isn't installed.
-     */
-    protected function ownsPackage(User $user, int $packageId): bool
-    {
-        if (! class_exists(Subscription::class)) {
-            return false;
-        }
-
-        $hasActiveSubscription = Subscription::where('user_id', $user->id)
-            ->where('package_id', $packageId)
-            ->scopes('active')
-            ->exists();
-
-        if ($hasActiveSubscription) {
-            return true;
-        }
-
-        return PaymentItem::where('buyable_type', 'shop.packages')
-            ->where('buyable_id', $packageId)
-            ->whereHas('payment', fn ($query) => $query->where('user_id', $user->id)->scopes('completed'))
-            ->scopes('excludeExpired')
-            ->exists();
-    }
-
-    /**
      * The Discord guild roles this user should currently hold across every
      * matched rule - rules targeting the same (guild, role) pair are ORed.
      *
@@ -95,6 +70,13 @@ class RoleSyncEvaluator
      * Reconcile a single user's Discord guild roles against every guild
      * referenced by any rule, granting/revoking via the bot as needed.
      * No-op if the user isn't Discord-linked or no bot token is configured.
+     *
+     * Revoking is conservative by default: a role is only removed from an
+     * ineligible member if the plugin is the one that granted it (tracked via
+     * RoleGrant) - a role the member already held independently (given by
+     * hand, from another integration, ...) is left alone, unless a rule
+     * targeting that (guild, role) has "overwrite" enabled, which enforces
+     * eligibility strictly regardless of how the role got there.
      */
     public function reconcileUser(User $user): void
     {
@@ -120,9 +102,19 @@ class RoleSyncEvaluator
                 $hasIt = in_array($roleId, $currentRoles, true);
 
                 if ($shouldHave && ! $hasIt) {
-                    DiscordBotClient::assignRole($guildId, $account->discord_user_id, $roleId);
+                    if (DiscordBotClient::assignRole($guildId, $account->discord_user_id, $roleId)) {
+                        $this->recordGrant($account->discord_user_id, $guildId, $roleId);
+                    }
                 } elseif (! $shouldHave && $hasIt) {
-                    DiscordBotClient::removeRole($guildId, $account->discord_user_id, $roleId);
+                    $weGranted = $this->wasGrantedByPlugin($account->discord_user_id, $guildId, $roleId);
+                    $overwrite = RoleSync::where('discord_guild_id', $guildId)
+                        ->where('discord_role_id', $roleId)
+                        ->where('overwrite', true)
+                        ->exists();
+
+                    if (($weGranted || $overwrite) && DiscordBotClient::removeRole($guildId, $account->discord_user_id, $roleId)) {
+                        $this->forgetGrant($account->discord_user_id, $guildId, $roleId);
+                    }
                 }
             }
         }
@@ -142,5 +134,52 @@ class RoleSyncEvaluator
         User::whereHas('discordAccount')->chunkById(50, function (Collection $users) {
             $users->each(fn (User $user) => $this->reconcileUser($user));
         });
+    }
+
+    /**
+     * Give back every role the plugin granted this Discord user, regardless
+     * of whether a matching rule still exists - called when unlinking (see
+     * DiscordIntegrationServiceProvider::registerUnlinkGuard()/registerAccountDeletionCleanup()
+     * and Admin\UserController::forceUnlinkDiscord()), so leaving doesn't
+     * leave them holding roles that were only ever conditional on being
+     * linked. Roles the member held independently (never tracked here) are
+     * left untouched, same as during normal reconciliation.
+     */
+    public function revokeGrantedRoles(string $discordUserId): void
+    {
+        if (! DiscordBotClient::available()) {
+            return;
+        }
+
+        RoleGrant::where('discord_user_id', $discordUserId)->get()->each(function (RoleGrant $grant) {
+            if (DiscordBotClient::removeRole($grant->discord_guild_id, $grant->discord_user_id, $grant->discord_role_id)) {
+                $grant->delete();
+            }
+        });
+    }
+
+    protected function wasGrantedByPlugin(string $discordUserId, string $guildId, string $roleId): bool
+    {
+        return RoleGrant::where('discord_user_id', $discordUserId)
+            ->where('discord_guild_id', $guildId)
+            ->where('discord_role_id', $roleId)
+            ->exists();
+    }
+
+    protected function recordGrant(string $discordUserId, string $guildId, string $roleId): void
+    {
+        RoleGrant::firstOrCreate([
+            'discord_user_id' => $discordUserId,
+            'discord_guild_id' => $guildId,
+            'discord_role_id' => $roleId,
+        ]);
+    }
+
+    protected function forgetGrant(string $discordUserId, string $guildId, string $roleId): void
+    {
+        RoleGrant::where('discord_user_id', $discordUserId)
+            ->where('discord_guild_id', $guildId)
+            ->where('discord_role_id', $roleId)
+            ->delete();
     }
 }

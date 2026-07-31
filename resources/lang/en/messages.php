@@ -31,6 +31,12 @@ return [
         'description' => 'Choose which account you want to log into.',
     ],
 
+    'choose_method' => [
+        'title' => 'How do you want to continue?',
+        'sso_button' => 'Continue with :name',
+        'discord_button' => 'Continue with Discord',
+    ],
+
     'conflict' => [
         'title' => 'This Discord is already linked',
         'already_linked' => 'This Discord account is already linked to an existing account on the site. You can log into that account, or create a new one if duplicates are allowed.',
@@ -56,5 +62,14 @@ return [
     'tools' => [
         'recovery_dm' => "Hi! An administrator of :site generated a new password for your account:\n\n:password\n\nYou will be asked to change it the next time you log in with it.",
         'recovery_codes_dm' => "Hi! An administrator of :site regenerated your two-factor authentication recovery codes. Your previous codes no longer work. Here are your new ones - keep them somewhere safe:\n\n:codes",
+    ],
+
+    'interactions' => [
+        'unsupported' => "This interaction type isn't supported.",
+        'not_found' => 'This command is no longer available.',
+        'forbidden' => "You don't meet the requirements to use this command.",
+        'not_linked' => 'Link your Discord account on the site first.',
+        'form_not_found' => 'This form is no longer available.',
+        'done' => '✅',
     ],
 ];

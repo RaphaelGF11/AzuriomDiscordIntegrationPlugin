@@ -4,7 +4,8 @@
 
 @php
     $discordLinked = $user->discordAccount;
-    $discordLockedForUnlink = $discordLinked !== null && ! $discordLinked->has_custom_password;
+    $discordPasswordless = \Azuriom\Plugin\DiscordIntegration\Support\DiscordPasswordless::isPasswordless($user);
+    $discordLockedForUnlink = $discordLinked !== null && $discordPasswordless;
 @endphp
 
 @section('content')
@@ -154,7 +155,7 @@
         </div>
 
         @if(! oauth_login())
-            @if($discordLinked === null || $discordLinked->has_custom_password)
+            @if($discordLinked === null || ! $discordPasswordless)
                 <div class="col-md-6">
                     <div class="card">
                         <div class="card-body">

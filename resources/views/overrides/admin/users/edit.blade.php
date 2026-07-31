@@ -2,12 +2,16 @@
 
 @section('title', trans('admin.users.edit', ['user' => $user->name]))
 
+@php
+    $discordPasswordless = \Azuriom\Plugin\DiscordIntegration\Support\DiscordPasswordless::isPasswordless($user);
+@endphp
+
 @section('content')
-    @if($user->discordAccount !== null && ! $user->discordAccount->has_custom_password)
+    @if($user->discordAccount !== null && $discordPasswordless)
         <div class="alert alert-warning" role="alert">
             <i class="bi bi-exclamation-triangle"></i> {{ trans('discord-integration::admin.users.no_password_warning') }}
         </div>
-    @elseif($user->discordAccount === null && $user->discord_integration_passwordless)
+    @elseif($user->discordAccount === null && $discordPasswordless)
         <div class="alert alert-danger" role="alert">
             <i class="bi bi-exclamation-triangle"></i> {{ trans('discord-integration::admin.users.no_password_error') }}
         </div>
@@ -241,7 +245,7 @@
                         <div class="mb-3">
                             <label class="form-label" for="discordInput">{{ trans('admin.users.discord') }}</label>
 
-                            @if($user->discordAccount->has_custom_password)
+                            @if(! $discordPasswordless)
                                 <form action="{{ route('admin.users.discord.unlink', $user) }}" method="POST">
                                     @csrf
 
@@ -337,7 +341,7 @@
         </div>
     @endif
 
-    @if($user->discordAccount !== null && ! $user->discordAccount->has_custom_password)
+    @if($user->discordAccount !== null && $discordPasswordless)
         <div class="modal fade" id="forceUnlinkModal" tabindex="-1" role="dialog" aria-labelledby="forceUnlinkLabel" aria-modal="true" data-bs-backdrop="static">
             <div class="modal-dialog" role="document">
                 <div class="modal-content">

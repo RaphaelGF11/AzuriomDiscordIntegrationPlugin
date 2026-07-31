@@ -8,6 +8,8 @@ use Azuriom\Models\DiscordAccount;
 use Azuriom\Models\User;
 use Azuriom\Plugin\DiscordIntegration\Support\DiscordAvatar;
 use Azuriom\Plugin\DiscordIntegration\Support\DiscordBotClient;
+use Azuriom\Plugin\DiscordIntegration\Support\DiscordPasswordless;
+use Azuriom\Plugin\DiscordIntegration\Support\RoleSyncEvaluator;
 use Azuriom\Support\Discord\LinkedRoles;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -27,23 +29,20 @@ class UserController extends Controller
      * account a new way to log in (e.g. setting a password below on the
      * same page) - this action does not do it for them.
      */
-    public function forceUnlinkDiscord(User $user): Response
+    public function forceUnlinkDiscord(User $user, RoleSyncEvaluator $evaluator): Response
     {
         $account = $user->discordAccount;
 
-        abort_if($account === null || $account->has_custom_password, 404);
+        abort_if($account === null || ! DiscordPasswordless::isPasswordless($user), 404);
 
         LinkedRoles::clearRole($account);
+        $evaluator->revokeGrantedRoles($account->discord_user_id);
 
         DiscordAccount::whereKey($account->getKey())->delete();
 
-        // Set explicitly rather than relying on it already being true: accounts
-        // created before this column existed default to false, even though
-        // they're genuinely passwordless (this is exactly that case).
-        if (! $user->discord_integration_passwordless) {
-            $user->forceFill(['discord_integration_passwordless' => true])->saveQuietly();
-        }
-
+        // No bookkeeping needed here anymore: discord_integration_generated_password
+        // lives on the user row, so DiscordPasswordless::isPasswordless() keeps
+        // returning true after the discord_accounts row above is gone.
         ActionLog::log('users.updated', $user)?->createEntries(
             ['discord' => $account->name],
             ['discord' => null]

@@ -3,8 +3,7 @@
 @section('title', trans('auth.passwords.confirm'))
 
 @php
-    $discordAccount = auth()->user()?->discordAccount;
-    $confirmViaDiscord = $discordAccount !== null && ! $discordAccount->has_custom_password;
+    $confirmViaDiscord = \Azuriom\Plugin\DiscordIntegration\Support\DiscordPasswordless::isPasswordless(auth()->user());
 @endphp
 
 @section('content')

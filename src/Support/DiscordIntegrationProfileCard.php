@@ -28,6 +28,7 @@ class DiscordIntegrationProfileCard extends UserProfileCardComposer
                 'data' => [
                     'discordAccount' => $account,
                     'showBypass2fa' => $user->hasTwoFactorAuth(),
+                    'passwordless' => DiscordPasswordless::isPasswordless($user),
                 ],
             ],
         ];

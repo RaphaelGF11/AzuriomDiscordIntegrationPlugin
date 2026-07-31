@@ -31,6 +31,12 @@ return [
         'description' => 'Choisissez le compte auquel vous souhaitez vous connecter.',
     ],
 
+    'choose_method' => [
+        'title' => 'Comment voulez-vous continuer ?',
+        'sso_button' => 'Continuer avec :name',
+        'discord_button' => 'Continuer avec Discord',
+    ],
+
     'conflict' => [
         'title' => 'Ce Discord est déjà lié',
         'already_linked' => "Ce compte Discord est déjà lié à un compte existant sur le site. Vous pouvez vous connecter à ce compte, ou en créer un nouveau si les doublons sont autorisés.",
@@ -56,5 +62,14 @@ return [
     'tools' => [
         'recovery_dm' => "Bonjour ! Un administrateur de :site a généré un nouveau mot de passe pour votre compte :\n\n:password\n\nIl vous sera demandé de le changer lors de votre prochaine connexion avec celui-ci.",
         'recovery_codes_dm' => "Bonjour ! Un administrateur de :site a régénéré vos codes de secours de double authentification. Vos anciens codes ne fonctionnent plus. Voici vos nouveaux codes — conservez-les en lieu sûr :\n\n:codes",
+    ],
+
+    'interactions' => [
+        'unsupported' => "Ce type d'interaction n'est pas pris en charge.",
+        'not_found' => "Cette commande n'est plus disponible.",
+        'forbidden' => "Vous ne remplissez pas les conditions pour utiliser cette commande.",
+        'not_linked' => "Liez d'abord votre compte Discord sur le site.",
+        'form_not_found' => "Ce formulaire n'est plus disponible.",
+        'done' => '✅',
     ],
 ];

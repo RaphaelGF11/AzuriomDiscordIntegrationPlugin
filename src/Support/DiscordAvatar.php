@@ -34,4 +34,53 @@ class DiscordAvatar
 
         return "https://cdn.discordapp.com/embed/avatars/{$index}.png";
     }
+
+    /**
+     * Same as urlFrom(), but with a concrete size baked in instead of the
+     * literal "{size}" token, for callers that render an <img> themselves
+     * (the admin picker UI) rather than going through Azuriom's own
+     * User::getAvatar() replacement.
+     */
+    public static function smallIconUrlFrom(array $discordUser): string
+    {
+        return str_replace('{size}', '32', static::urlFrom($discordUser));
+    }
+
+    /**
+     * Build a Discord CDN guild icon URL, or null if the guild has no custom
+     * icon set - unlike user avatars, Discord has no default guild icon to
+     * fall back to, so callers should show a placeholder in that case.
+     */
+    public static function guildIconUrl(array $guild): ?string
+    {
+        $hash = $guild['icon'] ?? null;
+
+        if ($hash === null) {
+            return null;
+        }
+
+        $extension = str_starts_with($hash, 'a_') ? 'gif' : 'png';
+
+        return "https://cdn.discordapp.com/icons/{$guild['id']}/{$hash}.{$extension}?size=32";
+    }
+
+    /**
+     * Build {id, label, icon} items for the shared DiscordPicker component
+     * (see resources/views/admin/partials/discord-picker-modal.blade.php)
+     * from raw guild payloads (see DiscordBotClient::guilds()).
+     *
+     * @param  array[]  $guilds
+     * @return array[]
+     */
+    public static function guildPickerItems(array $guilds): array
+    {
+        return collect($guilds)
+            ->map(fn ($guild) => [
+                'id' => $guild['id'],
+                'label' => $guild['name'],
+                'icon' => static::guildIconUrl($guild),
+            ])
+            ->values()
+            ->all();
+    }
 }

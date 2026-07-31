@@ -8,6 +8,7 @@ use Azuriom\Plugin\DiscordIntegration\Support\DiscordBotClient;
 use Azuriom\Plugin\DiscordIntegration\Support\DiscordCredentials;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Validation\ValidationException;
 use Laravel\Socialite\Facades\Socialite;
 use Throwable;
 
@@ -25,6 +26,10 @@ class ConfigurationController extends Controller
             'customBotToken' => setting('discord-integration.bot_token'),
             'botAvailable' => DiscordBotClient::available(),
             'showHttpWarning' => $this->isInsecureNonLocalUrl($request),
+            'allowDuplicates' => setting('discord-integration.allow_duplicates', false),
+            'syncAvatar' => setting('discord-integration.sync_avatar', false),
+            'requiredGuildId' => setting('discord-integration.required_guild_id'),
+            'guilds' => DiscordBotClient::available() ? DiscordBotClient::guilds() : null,
         ]);
     }
 
@@ -52,13 +57,31 @@ class ConfigurationController extends Controller
         $this->validate($request, [
             'client_id' => ['nullable', 'required_with:use_custom_credentials', 'string'],
             'client_secret' => ['nullable', 'required_with:use_custom_credentials', 'string'],
+            'required_guild_id' => ['nullable', 'string'],
         ]);
+
+        $allowDuplicates = $request->boolean('allow_duplicates');
+
+        // Kept mutually exclusive with "match by email" (see
+        // Admin\AuthenticationController::save()) - that setting lives on a
+        // different page/form now, so this checks its currently saved value
+        // rather than something submitted together in this same request.
+        if ($allowDuplicates && setting('discord-integration.match_by_email', false)) {
+            throw ValidationException::withMessages([
+                'allow_duplicates' => trans('discord-integration::admin.incompatible_with_match_by_email', [
+                    'option' => trans('discord-integration::admin.match_by_email'),
+                ]),
+            ]);
+        }
 
         Setting::updateSettings([
             'discord-integration.use_custom_credentials' => $request->boolean('use_custom_credentials'),
             'discord-integration.client_id' => $request->input('client_id'),
             'discord-integration.client_secret' => $request->input('client_secret'),
             'discord-integration.bot_token' => $request->input('bot_token'),
+            'discord-integration.allow_duplicates' => $allowDuplicates,
+            'discord-integration.sync_avatar' => $request->boolean('sync_avatar'),
+            'discord-integration.required_guild_id' => $request->input('required_guild_id'),
         ]);
 
         return to_route('discord-integration.admin.configuration')

@@ -6,9 +6,11 @@ use Azuriom\Http\Controllers\Controller;
 use Azuriom\Models\ActionLog;
 use Azuriom\Models\DiscordAccount;
 use Azuriom\Models\User;
+use Azuriom\Plugin\DiscordIntegration\Models\PendingLink;
 use Azuriom\Plugin\DiscordIntegration\Support\DiscordAvatar;
 use Azuriom\Plugin\DiscordIntegration\Support\DiscordBotClient;
 use Azuriom\Plugin\DiscordIntegration\Support\DiscordCredentials;
+use Azuriom\Plugin\DiscordIntegration\Support\DiscordPasswordless;
 use Azuriom\Rules\GameAuth;
 use Azuriom\Rules\Username;
 use Illuminate\Auth\Events\Registered;
@@ -16,6 +18,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
@@ -90,9 +93,12 @@ class DiscordIntegrationController extends Controller
 
         $discordUser = $this->driver()->user();
 
-        if (($guildError = $this->ensureGuildMembership($discordUser)) !== null) {
-            return $guildError;
-        }
+        // Guild membership (and the "guilds.join" auto-add) is enforced later,
+        // only once a login or registration attempt actually gets validated -
+        // see loginUser() and register() - rather than here on every raw OAuth
+        // callback, which would join people to the server even when their
+        // attempt was going to be rejected anyway (banned, abandoned
+        // registration, maintenance mode, ...).
 
         // Only trust the email if Discord reports it as verified, otherwise anyone
         // could put someone else's address on their Discord account and register
@@ -104,6 +110,30 @@ class DiscordIntegrationController extends Controller
         $accounts = DiscordAccount::where('discord_user_id', $discordUser->getId())->get();
 
         if ($accounts->isEmpty()) {
+            // An admin previously force-linked this Discord user to a site
+            // account without OAuth proof (see Admin\LinkController) - now
+            // that they've actually completed a real OAuth round-trip
+            // themselves, promote it into a real link and log them in,
+            // rather than treating this as a brand new registration.
+            $pendingLink = PendingLink::where('discord_user_id', $discordUser->getId())->first();
+
+            if ($pendingLink !== null) {
+                $account = (new DiscordAccount())->forceFill([
+                    'user_id' => $pendingLink->user_id,
+                    'name' => $discordUser->getNickname() ?? $discordUser->getName(),
+                    'discord_user_id' => $discordUser->getId(),
+                    'access_token' => $discordUser->token,
+                    'refresh_token' => $discordUser->refreshToken,
+                    'expires_at' => now()->addSeconds($discordUser->expiresIn),
+                    'bypass_2fa' => false,
+                ]);
+                $account->save();
+
+                $pendingLink->delete();
+
+                return $this->loginAccount($request, $account, $discordEmail, $this->avatarData($discordUser));
+            }
+
             // Opt-in fallback: match the (verified) Discord email against site
             // accounts. Only used when no explicit Discord link matched, and only
             // for logins - a register attempt keeps the normal "email already
@@ -120,7 +150,7 @@ class DiscordIntegrationController extends Controller
                 $user = User::firstWhere('email', $discordEmail);
 
                 if ($user !== null) {
-                    return $this->loginUser($request, $user, null, null, $this->avatarData($discordUser));
+                    return $this->loginUser($request, $user, null, null, $this->avatarData($discordUser), $discordUser->token);
                 }
             }
 
@@ -395,16 +425,30 @@ class DiscordIntegrationController extends Controller
 
         $password = $data['password'] ?? null;
 
+        // The submitted registration data is valid at this point, so this is
+        // where the account is considered "about to be validated" - only now
+        // does joining the required Discord server (if configured) happen,
+        // not speculatively back in callback() for every OAuth round-trip
+        // regardless of whether registration is ever completed.
+        if (($guildError = $this->ensureGuildMembership($pending['id'], $pending['access_token'])) !== null) {
+            return $guildError;
+        }
+
         // $pending['email'] is only ever populated when Discord reported it
         // verified (see callback()), so the final email matching it exactly
         // means it's already been proven to belong to this user: mark it
         // verified right away instead of sending a confirmation email for it.
         $emailVerified = $email !== null && $email === $pending['email'];
 
+        // Pre-hashed here (rather than left to the password' => 'hashed' cast
+        // on User) so the exact same hash can also be stored as the "generated
+        // password" reference - see Support\DiscordPasswordless.
+        $generatedPassword = $password === null ? Hash::make(Str::random(128)) : null;
+
         // Atomic: if the duplicate guard rejects the Discord link, the user row
         // is rolled back too instead of remaining as an orphan squatting the
         // username and email.
-        $user = DB::transaction(function () use ($request, $data, $pending, $password, $email, $emailVerified) {
+        $user = DB::transaction(function () use ($request, $data, $pending, $password, $generatedPassword, $email, $emailVerified) {
             $user = User::forceCreate([
                 'name' => $data['name'],
                 'email' => $email,
@@ -414,8 +458,8 @@ class DiscordIntegrationController extends Controller
                     'avatar' => $pending['avatar'] ?? null,
                     'discriminator' => $pending['discriminator'] ?? null,
                 ]) : null,
-                'password' => $password ?? Str::random(128),
-                'discord_integration_passwordless' => $password === null,
+                'password' => $generatedPassword ?? $password,
+                'discord_integration_generated_password' => $generatedPassword,
                 'game_id' => game()->getUserUniqueId($data['name']),
                 'last_login_ip' => $request->ip(),
                 'last_login_at' => now(),
@@ -428,7 +472,6 @@ class DiscordIntegrationController extends Controller
                 'access_token' => $pending['access_token'],
                 'refresh_token' => $pending['refresh_token'],
                 'expires_at' => now()->addSeconds($pending['expires_in']),
-                'has_custom_password' => filled($password),
                 'bypass_2fa' => false,
             ])->save();
 
@@ -469,7 +512,7 @@ class DiscordIntegrationController extends Controller
     {
         $account = $request->user()->discordAccount;
 
-        abort_if($account === null || $account->has_custom_password, 404);
+        abort_if($account === null || ! DiscordPasswordless::isPasswordless($request->user()), 404);
 
         // Setting a password grants a durable credential (and unlocks unlinking
         // Discord), so require a recent identity confirmation first — the same
@@ -487,10 +530,10 @@ class DiscordIntegrationController extends Controller
             'password' => ['required', 'confirmed', Password::default()],
         ]);
 
-        $user = $request->user();
-        $user->update(['password' => $data['password']]);
-
-        $account->forceFill(['has_custom_password' => true])->save();
+        // No further bookkeeping needed: once users.password no longer matches
+        // discord_integration_generated_password, DiscordPasswordless::isPasswordless()
+        // naturally starts returning false everywhere it's checked.
+        $request->user()->update(['password' => $data['password']]);
 
         Auth::logoutOtherDevices($data['password']);
 
@@ -507,7 +550,7 @@ class DiscordIntegrationController extends Controller
 
         // Only accounts without a real password may substitute Discord for the
         // password confirmation; accounts with one must confirm with it.
-        abort_if($account === null || $account->has_custom_password, 404);
+        abort_if($account === null || ! DiscordPasswordless::isPasswordless($request->user()), 404);
 
         $request->session()->put('discord-integration.intent', 'confirm');
 
@@ -532,7 +575,7 @@ class DiscordIntegrationController extends Controller
 
         $account = $request->user()->discordAccount;
 
-        abort_if($account === null || $account->has_custom_password, 404);
+        abort_if($account === null || ! DiscordPasswordless::isPasswordless($request->user()), 404);
 
         $discordUser = Socialite::driver('discord-integration')
             ->scopes(['identify'])
@@ -574,9 +617,14 @@ class DiscordIntegrationController extends Controller
      * applies to every login/register attempt, not just the first link, so
      * someone who later leaves the guild is caught too.
      *
+     * Called from loginUser() and register() once their own checks have
+     * passed, not from callback() itself - joining someone to the server is
+     * a side effect that should only happen once the login/registration it's
+     * tied to is actually going to succeed (see the callers for why).
+     *
      * Returns a redirect response to abort the flow with, or null to continue.
      */
-    protected function ensureGuildMembership($discordUser): ?Response
+    protected function ensureGuildMembership(?string $discordUserId, ?string $accessToken): ?Response
     {
         $guildId = setting('discord-integration.required_guild_id');
 
@@ -587,11 +635,11 @@ class DiscordIntegrationController extends Controller
         // A null result covers both "not a member" and any other API failure -
         // either way, attempting to add them is the right next step, and if
         // that also fails we fall through to the same "please join" error.
-        if (DiscordBotClient::guildMemberRoles($guildId, $discordUser->getId()) !== null) {
+        if (DiscordBotClient::guildMemberRoles($guildId, $discordUserId) !== null) {
             return null;
         }
 
-        if (DiscordBotClient::addGuildMember($guildId, $discordUser->getId(), $discordUser->token)) {
+        if ($accessToken !== null && DiscordBotClient::addGuildMember($guildId, $discordUserId, $accessToken)) {
             return null;
         }
 
@@ -655,7 +703,7 @@ class DiscordIntegrationController extends Controller
      * when that fallback is enabled - in which case there is no DiscordAccount
      * row and the 2FA bypass never applies).
      */
-    protected function loginUser(Request $request, ?User $user, ?DiscordAccount $account, ?string $discordEmail, array $discordAvatarData = []): Response
+    protected function loginUser(Request $request, ?User $user, ?DiscordAccount $account, ?string $discordEmail, array $discordAvatarData = [], ?string $discordAccessToken = null): Response
     {
         // Same gates as the core password login: deleted accounts (stale
         // discord_accounts rows from before this plugin cleaned them up) and
@@ -674,6 +722,13 @@ class DiscordIntegrationController extends Controller
 
         if ($this->isMaintenance($user)) {
             return to_route('login')->with('error', trans('auth.maintenance'));
+        }
+
+        // Every other guard above has passed, so this login is about to be
+        // validated - only now does joining the required Discord server (if
+        // configured) happen, see ensureGuildMembership().
+        if (($guildError = $this->ensureGuildMembership($discordAvatarData['id'] ?? null, $discordAccessToken ?? $account?->access_token)) !== null) {
+            return $guildError;
         }
 
         if ($user->hasTwoFactorAuth() && ! ($account?->bypass_2fa)) {

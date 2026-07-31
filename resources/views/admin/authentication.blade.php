@@ -19,17 +19,13 @@
                 </div>
 
                 <div class="mb-3 form-check form-switch">
-                    <input class="form-check-input @error('allow_duplicates') is-invalid @enderror" type="checkbox" name="allow_duplicates" id="allow_duplicates" @checked($allowDuplicates)>
+                    <input class="form-check-input" type="checkbox" name="force_register" id="force_register" @checked($forceRegister)>
 
-                    <label class="form-check-label" for="allow_duplicates">
-                        {{ trans('discord-integration::admin.allow_duplicates') }}
+                    <label class="form-check-label" for="force_register">
+                        {{ trans('discord-integration::admin.force_register') }}
                     </label>
 
-                    <div class="form-text">{{ trans('discord-integration::admin.allow_duplicates_help') }}</div>
-
-                    @error('allow_duplicates')
-                        <div class="invalid-feedback d-block">{{ $message }}</div>
-                    @enderror
+                    <div class="form-text">{{ trans('discord-integration::admin.force_register_help') }}</div>
                 </div>
 
                 <div class="mb-3 form-check form-switch">
@@ -67,41 +63,6 @@
                 </div>
 
                 <div class="mb-3 form-check form-switch">
-                    <input class="form-check-input" type="checkbox" name="sync_avatar" id="sync_avatar" @checked($syncAvatar)>
-
-                    <label class="form-check-label" for="sync_avatar">
-                        {{ trans('discord-integration::admin.sync_avatar') }}
-                    </label>
-
-                    <div class="form-text">{{ trans('discord-integration::admin.sync_avatar_help') }}</div>
-                </div>
-
-                <div class="mb-3">
-                    <label class="form-label" for="requiredGuildId">{{ trans('discord-integration::admin.required_guild') }}</label>
-                    <div class="form-text mb-2">{{ trans('discord-integration::admin.required_guild_help') }}</div>
-
-                    @if($guilds !== null)
-                        <select class="form-select @error('required_guild_id') is-invalid @enderror" id="requiredGuildId" name="required_guild_id">
-                            <option value="">{{ trans('discord-integration::admin.no_required_guild') }}</option>
-
-                            @foreach($guilds as $guild)
-                                <option value="{{ $guild['id'] }}" @selected(old('required_guild_id', $requiredGuildId) == $guild['id'])>{{ $guild['name'] }}</option>
-                            @endforeach
-
-                            @if($requiredGuildId && ! collect($guilds)->contains('id', $requiredGuildId))
-                                <option value="{{ $requiredGuildId }}" selected>{{ trans('discord-integration::admin.unknown_guild', ['id' => $requiredGuildId]) }}</option>
-                            @endif
-                        </select>
-                    @else
-                        <input type="text" class="form-control @error('required_guild_id') is-invalid @enderror" id="requiredGuildId" name="required_guild_id" value="{{ old('required_guild_id', $requiredGuildId) }}">
-                    @endif
-
-                    @error('required_guild_id')
-                    <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
-                    @enderror
-                </div>
-
-                <div class="mb-3 form-check form-switch">
                     <input class="form-check-input" type="checkbox" name="bypass_maintenance" id="bypass_maintenance" @checked($bypassMaintenance)>
 
                     <label class="form-check-label" for="bypass_maintenance">
@@ -117,6 +78,79 @@
             </form>
         </div>
     </div>
+
+    <div class="card mt-4">
+        <div class="card-body">
+            <h5 class="card-title text-danger">
+                <i class="bi bi-exclamation-triangle"></i> {{ trans('discord-integration::admin.force_login') }}
+            </h5>
+            <p class="form-text">{{ trans('discord-integration::admin.force_login_help') }}</p>
+
+            @if($forceLogin)
+                <div class="alert alert-warning">{{ trans('discord-integration::admin.force_login_active') }}</div>
+
+                <form method="POST" action="{{ route('discord-integration.admin.authentication.force-login.disable') }}">
+                    @csrf
+                    @method('DELETE')
+
+                    <button type="submit" class="btn btn-outline-secondary">
+                        {{ trans('discord-integration::admin.force_login_disable') }}
+                    </button>
+                </form>
+            @elseif($unlinkedUsersCount > 0)
+                <div class="alert alert-info mb-0">
+                    {{ trans('discord-integration::admin.force_login_precondition', ['count' => $unlinkedUsersCount]) }}
+                </div>
+            @else
+                <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#forceLoginModal">
+                    {{ trans('discord-integration::admin.force_login_enable') }}
+                </button>
+            @endif
+        </div>
+    </div>
+
+    @if(! $forceLogin && $unlinkedUsersCount === 0)
+        <div class="modal fade" id="forceLoginModal" tabindex="-1" role="dialog" aria-labelledby="forceLoginModalLabel" aria-modal="true" data-bs-backdrop="static">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title text-danger" id="forceLoginModalLabel">
+                            <i class="bi bi-exclamation-triangle"></i> {{ trans('discord-integration::admin.force_login') }}
+                        </h2>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>{{ trans('discord-integration::admin.force_login_confirm_body') }}</p>
+
+                        <form method="POST" action="{{ route('discord-integration.admin.authentication.force-login') }}" id="forceLoginForm">
+                            @csrf
+
+                            <div class="mb-3">
+                                <label class="form-label" for="forceLoginPassword">{{ trans('auth.current_password') }}</label>
+                                <input type="password" class="form-control @error('password') is-invalid @enderror" name="password" id="forceLoginPassword" required>
+
+                                @error('password')
+                                <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
+                                @enderror
+                            </div>
+
+                            @include('elements.captcha', ['center' => true])
+
+                            <div class="d-flex justify-content-end gap-2 mt-3">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                                    {{ trans('messages.actions.cancel') }}
+                                </button>
+
+                                <button type="submit" class="btn btn-danger">
+                                    {{ trans('discord-integration::admin.force_login_enable') }}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
 
     <div class="modal fade" id="emailMatchWarningModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
         <div class="modal-dialog">
@@ -147,7 +181,6 @@
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             const matchByEmail = document.getElementById('match_by_email');
-            const allowDuplicates = document.getElementById('allow_duplicates');
             const customizableEmail = document.getElementById('customizable_email');
             const modalElement = document.getElementById('emailMatchWarningModal');
             const modal = new bootstrap.Modal(modalElement);
@@ -155,16 +188,16 @@
             const confirmLabel = confirmButton.textContent.trim();
             let countdownTimer = null;
 
-            // allow_duplicates and customizable_email are kept mutually exclusive
-            // with match_by_email (see Admin\AuthenticationController::save()), so
-            // enabling either of them here turns match_by_email back off instead
-            // of letting an invalid combination reach the server.
-            [allowDuplicates, customizableEmail].forEach(function (checkbox) {
-                checkbox.addEventListener('change', function () {
-                    if (checkbox.checked) {
-                        matchByEmail.checked = false;
-                    }
-                });
+            // customizable_email is kept mutually exclusive with match_by_email
+            // (see Admin\AuthenticationController::save() - "allow duplicates"
+            // is checked the same way, but it now lives on the Configuration
+            // page, so it can't be reflected here client-side), so enabling it
+            // here turns match_by_email back off instead of letting an invalid
+            // combination reach the server.
+            customizableEmail.addEventListener('change', function () {
+                if (customizableEmail.checked) {
+                    matchByEmail.checked = false;
+                }
             });
 
             matchByEmail.addEventListener('change', function () {
@@ -196,7 +229,6 @@
 
             confirmButton.addEventListener('click', function () {
                 matchByEmail.checked = true;
-                allowDuplicates.checked = false;
                 customizableEmail.checked = false;
                 modal.hide();
             });
@@ -204,6 +236,10 @@
             modalElement.addEventListener('hidden.bs.modal', function () {
                 clearInterval(countdownTimer);
             });
+
+            @if($errors->has('password'))
+                bootstrap.Modal.getOrCreateInstance(document.getElementById('forceLoginModal')).show();
+            @endif
         });
     </script>
 @endpush

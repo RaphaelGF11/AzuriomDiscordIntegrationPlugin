@@ -9,7 +9,11 @@ use Illuminate\Validation\ValidationException;
 /**
  * Rejects password logins for accounts that only have the random,
  * unknown-to-anyone password generated at Discord registration time,
- * instead of silently relying on that password being unguessable.
+ * instead of silently relying on that password being unguessable. Also
+ * rejects them for every account when "force Discord login" is on (see
+ * Admin\AuthenticationController::forceLogin()) - that setting is meant to
+ * make every account behave as if it were passwordless, not just the ones
+ * that actually are.
  */
 class DiscordOnlyAwareUserProvider extends EloquentUserProvider
 {
@@ -21,9 +25,7 @@ class DiscordOnlyAwareUserProvider extends EloquentUserProvider
      */
     public function validateCredentials(UserContract $user, #[\SensitiveParameter] array $credentials)
     {
-        $account = $user->discordAccount ?? null;
-
-        if ($account !== null && ! $account->has_custom_password) {
+        if (setting('discord-integration.force_login', false) || DiscordPasswordless::isPasswordless($user)) {
             throw ValidationException::withMessages([
                 'email' => trans('discord-integration::messages.password_login_disabled'),
             ]);

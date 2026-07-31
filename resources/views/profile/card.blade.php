@@ -15,7 +15,7 @@
     </form>
 @endif
 
-@if(! $discordAccount->has_custom_password)
+@if($passwordless)
     <form method="POST" action="{{ route('discord-integration.set-password') }}">
         @csrf
 
