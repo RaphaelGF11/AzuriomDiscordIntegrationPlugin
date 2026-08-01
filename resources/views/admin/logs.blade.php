@@ -8,9 +8,15 @@
             <h5 class="card-title mb-0">{{ trans('discord-integration::admin.logs.title') }}</h5>
 
             @if($entries->total() > 0)
-                <a href="{{ route('discord-integration.admin.logs.clear') }}" class="btn btn-sm btn-outline-danger" data-confirm="delete">
-                    <i class="bi bi-trash"></i> {{ trans('discord-integration::admin.logs.clear') }}
-                </a>
+                <div class="d-flex gap-2">
+                    <a href="{{ route('discord-integration.admin.logs.clean') }}" class="btn btn-sm btn-outline-secondary" data-confirm="delete" title="{{ trans('discord-integration::admin.logs.clean_help') }}">
+                        <i class="bi bi-eraser"></i> {{ trans('discord-integration::admin.logs.clean') }}
+                    </a>
+
+                    <a href="{{ route('discord-integration.admin.logs.clear') }}" class="btn btn-sm btn-outline-danger" data-confirm="delete">
+                        <i class="bi bi-trash"></i> {{ trans('discord-integration::admin.logs.clear') }}
+                    </a>
+                </div>
             @endif
         </div>
         <div class="card-body">

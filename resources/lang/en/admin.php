@@ -548,6 +548,8 @@ return [
         'guild' => 'Guild',
         'role' => 'Role',
         'status' => 'HTTP status',
+        'clean' => 'Clean up',
+        'clean_help' => 'Removes only entries older than 30 days (the same daily automatic cleanup, triggered right now).',
         'clear' => 'Clear the log',
     ],
 ];

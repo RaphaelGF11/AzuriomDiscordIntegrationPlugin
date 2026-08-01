@@ -540,6 +540,8 @@ return [
         'guild' => 'Serveur',
         'role' => 'Rôle',
         'status' => 'Statut HTTP',
+        'clean' => 'Nettoyer',
+        'clean_help' => "Supprime uniquement les entrées de plus de 30 jours (le même nettoyage automatique quotidien, déclenché immédiatement).",
         'clear' => 'Vider le journal',
     ],
 ];

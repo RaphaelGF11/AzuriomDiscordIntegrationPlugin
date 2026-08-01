@@ -46,4 +46,17 @@ class LogController extends Controller
 
         return to_route('discord-integration.admin.logs')->with('success', trans('messages.status.success'));
     }
+
+    /**
+     * Runs the same 30-day cutoff the daily scheduled prune (see
+     * DiscordIntegrationServiceProvider) already applies, on demand -
+     * trims stale entries without losing everything recent the way
+     * clear() does.
+     */
+    public function clean()
+    {
+        (new LogEntry)->prunable()->delete();
+
+        return to_route('discord-integration.admin.logs')->with('success', trans('messages.status.success'));
+    }
 }

@@ -109,6 +109,7 @@ Route::middleware('can:discord-integration.admin')->group(function () {
 
     Route::get('/logs', [LogController::class, 'index'])->name('logs');
     Route::delete('/logs', [LogController::class, 'clear'])->name('logs.clear');
+    Route::delete('/logs/clean', [LogController::class, 'clean'])->name('logs.clean');
 
     Route::post('/users/{user}/force-unlink', [UserController::class, 'forceUnlinkDiscord'])
         ->name('users.force-unlink')
