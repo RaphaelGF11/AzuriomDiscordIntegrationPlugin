@@ -68,6 +68,7 @@ class CommandScriptRunner
             // A "stop" (or "show_modal") block ran - deliberate early exit, not an error.
         } catch (CommandScriptStepBudgetExceeded $e) {
             report($e);
+            PluginLog::warning('a command script exceeded its execution step budget', ['user_id' => $user->id]);
         }
 
         return $state;
@@ -252,6 +253,11 @@ class CommandScriptRunner
             $this->storeResult($block, $result, $state);
         } catch (Throwable $e) {
             report($e);
+            PluginLog::error('a command script action failed', [
+                'exception' => $e->getMessage(),
+                'block_type' => $block['type'] ?? null,
+                'user_id' => $state->user->id,
+            ]);
         }
     }
 

@@ -11,12 +11,14 @@ use Azuriom\Models\User;
 use Azuriom\Plugin\DiscordIntegration\Console\Commands\GatewayCommand;
 use Azuriom\Plugin\DiscordIntegration\Console\Commands\InstallGatewayServiceCommand;
 use Azuriom\Plugin\DiscordIntegration\Console\Commands\SyncDiscordRolesCommand;
+use Azuriom\Plugin\DiscordIntegration\Models\LogEntry;
 use Azuriom\Plugin\DiscordIntegration\Support\DiscordCredentials;
 use Azuriom\Plugin\DiscordIntegration\Support\DiscordIntegrationProfileCard;
 use Azuriom\Plugin\DiscordIntegration\Support\DiscordOnlyAwareUserProvider;
 use Azuriom\Plugin\DiscordIntegration\Support\DiscordPasswordless;
 use Azuriom\Plugin\DiscordIntegration\Support\ForceDiscordAuthMiddleware;
 use Azuriom\Plugin\DiscordIntegration\Support\MaintenanceBypassMiddleware;
+use Azuriom\Plugin\DiscordIntegration\Support\PluginLog;
 use Azuriom\Plugin\DiscordIntegration\Support\RoleSyncEvaluator;
 use Azuriom\Plugin\DiscordIntegration\Support\SsoOrDiscordMiddleware;
 use Azuriom\Socialite\DiscordProvider;
@@ -155,6 +157,7 @@ class DiscordIntegrationServiceProvider extends BasePluginServiceProvider
                     'discord-integration.admin.commands' => trans('discord-integration::admin.nav.interactions'),
                     'discord-integration.admin.messages' => trans('discord-integration::admin.nav.messages'),
                     'discord-integration.admin.gateway' => trans('discord-integration::admin.nav.gateway'),
+                    'discord-integration.admin.logs' => trans('discord-integration::admin.nav.logs'),
                 ],
             ],
         ];
@@ -252,6 +255,7 @@ class DiscordIntegrationServiceProvider extends BasePluginServiceProvider
                 $this->app->make(RoleSyncEvaluator::class)->revokeGrantedRoles($account->discord_user_id);
             } catch (Throwable $e) {
                 report($e);
+                PluginLog::error('failed to clean up Discord roles for a deleted account', ['exception' => $e->getMessage()]);
             }
 
             DiscordAccount::whereKey($account->getKey())->delete();
@@ -345,9 +349,13 @@ class DiscordIntegrationServiceProvider extends BasePluginServiceProvider
         }
 
         $this->app->booted(function () {
-            $this->app->make(Schedule::class)
-                ->command(SyncDiscordRolesCommand::class)
-                ->everyFifteenMinutes();
+            $schedule = $this->app->make(Schedule::class);
+
+            $schedule->command(SyncDiscordRolesCommand::class)->everyFifteenMinutes();
+
+            // Keeps the admin "Journal" page (Models\LogEntry) from growing
+            // forever - see its prunable() for the 30-day cutoff.
+            $schedule->command('model:prune', ['--model' => [LogEntry::class]])->daily();
         });
     }
 

@@ -67,6 +67,17 @@
                                                     {{ trans('discord-integration::admin.role_sync.overwrite') }}
                                                 </span>
                                             @endif
+
+                                            @php
+                                                $permissionError = $permissionErrors->get($roleSync->discord_guild_id.'|'.$roleSync->discord_role_id);
+                                            @endphp
+
+                                            @if($permissionError)
+                                                <div class="text-danger small mt-1">
+                                                    <i class="bi bi-exclamation-triangle-fill"></i>
+                                                    {{ trans('discord-integration::admin.role_sync.permission_error', ['when' => $permissionError->created_at->diffForHumans()]) }}
+                                                </div>
+                                            @endif
                                         </td>
                                         <td>
                                             <ul class="mb-0 ps-3">

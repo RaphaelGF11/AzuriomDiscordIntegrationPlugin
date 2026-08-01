@@ -9,6 +9,7 @@ return [
         'interactions' => 'Interactions',
         'messages' => 'Messages',
         'gateway' => 'Gateway',
+        'logs' => 'Log',
     ],
 
     'permission' => 'Manage Discord login settings',
@@ -152,6 +153,7 @@ return [
         'import_help' => 'Upload a JSON file previously downloaded with "Export". Site roles and the shop package are matched by name against this site\'s current ones - any that no longer exist are simply dropped from the imported rule\'s conditions.',
         'import_invalid' => 'This file is not a valid role sync export.',
         'import_done' => ':count rule(s) imported.',
+        'permission_error' => 'The bot failed to manage this role on Discord (failed :when). Check that the bot\'s own role has the "Manage Roles" permission and sits above this role in the server\'s hierarchy. See the Log for details.',
     ],
 
     'links' => [
@@ -529,5 +531,23 @@ return [
 
         'error_bad_token' => 'The bot token is invalid — Discord refused the connection.',
         'error_bad_intents' => 'Intents refused — enable "Server Members Intent" for the bot in the Discord developer portal (Bot tab).',
+    ],
+
+    'logs' => [
+        'title' => 'Log',
+        'description' => 'History of the plugin\'s events and errors: failed Discord API calls, script actions that errored out, blocked role syncs... Kept for 30 days.',
+        'empty' => 'Nothing here yet.',
+        'filter_all' => 'All',
+        'level' => 'Level',
+        'level_info' => 'Info',
+        'level_warning' => 'Warning',
+        'level_error' => 'Error',
+        'message' => 'Message',
+        'date' => 'Date',
+        'details' => 'Details',
+        'guild' => 'Guild',
+        'role' => 'Role',
+        'status' => 'HTTP status',
+        'clear' => 'Clear the log',
     ],
 ];

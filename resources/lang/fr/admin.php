@@ -9,6 +9,7 @@ return [
         'interactions' => 'Interactions',
         'messages' => 'Messages',
         'gateway' => 'Passerelle',
+        'logs' => 'Journal',
     ],
 
     'permission' => 'Gérer les paramètres de connexion Discord',
@@ -152,6 +153,7 @@ return [
         'import_help' => "Envoyez un fichier JSON précédemment téléchargé via « Exporter ». Les rôles du site et l'article du shop sont recherchés par nom parmi ceux existants sur ce site — ceux qui n'existent plus sont simplement retirés des conditions de la règle importée.",
         'import_invalid' => "Ce fichier n'est pas un export valide de synchronisation de rôles.",
         'import_done' => ':count règle(s) importée(s).',
+        'permission_error' => "Le bot n'a pas réussi à gérer ce rôle sur Discord (échec :when). Vérifiez que le rôle du bot a la permission « Gérer les rôles » et qu'il est positionné au-dessus de ce rôle dans la hiérarchie du serveur. Voir le Journal pour le détail.",
     ],
 
     'links' => [
@@ -521,5 +523,23 @@ return [
 
         'error_bad_token' => 'Le token du bot est invalide — Discord a refusé la connexion.',
         'error_bad_intents' => "Intents refusés — activez « Server Members Intent » pour le bot dans le portail développeur Discord (onglet Bot).",
+    ],
+
+    'logs' => [
+        'title' => 'Journal',
+        'description' => "Historique des évènements et erreurs du plugin : appels à l'API Discord en échec, actions de script en erreur, synchronisations de rôles bloquées... Conservé 30 jours.",
+        'empty' => 'Aucune entrée pour le moment.',
+        'filter_all' => 'Tout',
+        'level' => 'Niveau',
+        'level_info' => 'Info',
+        'level_warning' => 'Avertissement',
+        'level_error' => 'Erreur',
+        'message' => 'Message',
+        'date' => 'Date',
+        'details' => 'Détails',
+        'guild' => 'Serveur',
+        'role' => 'Rôle',
+        'status' => 'Statut HTTP',
+        'clear' => 'Vider le journal',
     ],
 ];

@@ -6,6 +6,7 @@ use Azuriom\Plugin\DiscordIntegration\Controllers\Admin\ConfigurationController;
 use Azuriom\Plugin\DiscordIntegration\Controllers\Admin\FormController;
 use Azuriom\Plugin\DiscordIntegration\Controllers\Admin\GatewayController;
 use Azuriom\Plugin\DiscordIntegration\Controllers\Admin\LinkController;
+use Azuriom\Plugin\DiscordIntegration\Controllers\Admin\LogController;
 use Azuriom\Plugin\DiscordIntegration\Controllers\Admin\MessageController;
 use Azuriom\Plugin\DiscordIntegration\Controllers\Admin\RoleSyncController;
 use Azuriom\Plugin\DiscordIntegration\Controllers\Admin\UserController;
@@ -105,6 +106,9 @@ Route::middleware('can:discord-integration.admin')->group(function () {
     Route::get('/gateway', [GatewayController::class, 'show'])->name('gateway');
     Route::post('/gateway', [GatewayController::class, 'save'])->name('gateway.save');
     Route::get('/gateway/status', [GatewayController::class, 'status'])->name('gateway.status');
+
+    Route::get('/logs', [LogController::class, 'index'])->name('logs');
+    Route::delete('/logs', [LogController::class, 'clear'])->name('logs.clear');
 
     Route::post('/users/{user}/force-unlink', [UserController::class, 'forceUnlinkDiscord'])
         ->name('users.force-unlink')

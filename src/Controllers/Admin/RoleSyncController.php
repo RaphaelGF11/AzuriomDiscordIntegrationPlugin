@@ -4,10 +4,12 @@ namespace Azuriom\Plugin\DiscordIntegration\Controllers\Admin;
 
 use Azuriom\Http\Controllers\Controller;
 use Azuriom\Models\Role;
+use Azuriom\Plugin\DiscordIntegration\Models\LogEntry;
 use Azuriom\Plugin\DiscordIntegration\Models\RoleSync;
 use Azuriom\Plugin\DiscordIntegration\Support\DiscordBotClient;
 use Azuriom\Plugin\DiscordIntegration\Support\RoleSyncEvaluator;
 use Azuriom\Plugin\Shop\Models\Package;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 
 class RoleSyncController extends Controller
@@ -18,14 +20,44 @@ class RoleSyncController extends Controller
     public function index()
     {
         $botAvailable = DiscordBotClient::available();
+        $roleSyncs = RoleSync::latest()->get();
 
         return view('discord-integration::admin.roles', [
             'botAvailable' => $botAvailable,
             'guilds' => $botAvailable ? DiscordBotClient::guilds() : null,
-            'roleSyncs' => RoleSync::latest()->get(),
+            'roleSyncs' => $roleSyncs,
             'siteRoles' => Role::orderByDesc('power')->get(),
             'shopPackages' => class_exists(Package::class) ? Package::enabled()->get(['id', 'name']) : null,
+            'permissionErrors' => $this->recentPermissionErrors($roleSyncs),
         ]);
+    }
+
+    /**
+     * A recent Discord 403 (see LogEntry::recentPermissionError()) for each
+     * (guild, role) pair any of the currently listed rules target - one
+     * query for every rule rather than N, keyed the same way the view looks
+     * entries up so a rule row can show "the bot can't manage this role"
+     * directly, instead of an admin having to notice a rule matching
+     * everyone yet granting it to no one and go digging through the logs.
+     *
+     * @param  Collection<int, RoleSync>  $roleSyncs
+     * @return \Illuminate\Support\Collection<string, LogEntry>
+     */
+    protected function recentPermissionErrors(Collection $roleSyncs)
+    {
+        $roleIds = $roleSyncs->pluck('discord_role_id')->unique()->values();
+
+        if ($roleIds->isEmpty()) {
+            return collect();
+        }
+
+        return LogEntry::where('status', 403)
+            ->whereIn('discord_role_id', $roleIds)
+            ->where('created_at', '>=', now()->subHours(6))
+            ->latest('created_at')
+            ->get()
+            ->unique(fn (LogEntry $entry) => $entry->discord_guild_id.'|'.$entry->discord_role_id)
+            ->keyBy(fn (LogEntry $entry) => $entry->discord_guild_id.'|'.$entry->discord_role_id);
     }
 
     /**

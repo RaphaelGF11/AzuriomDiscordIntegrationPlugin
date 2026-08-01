@@ -5,7 +5,6 @@ namespace Azuriom\Plugin\DiscordIntegration\Support;
 use Azuriom\Plugin\DiscordIntegration\Support\Gateway\GatewayCache;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
@@ -283,12 +282,13 @@ class DiscordBotClient
                 ->post(self::BASE_URL."/channels/{$channelId}/messages", ['payload_json' => json_encode($payload)]);
         } catch (Throwable $e) {
             report($e);
+            PluginLog::error('a Discord API request failed', ['exception' => $e->getMessage()]);
 
             return false;
         }
 
         if ($response->failed()) {
-            Log::warning('discord-integration: Discord Bot API call failed', [
+            PluginLog::warning('Discord Bot API call failed', [
                 'method' => 'post',
                 'path' => "/channels/{$channelId}/messages (with file)",
                 'status' => $response->status(),
@@ -419,12 +419,13 @@ class DiscordBotClient
             $response = Http::timeout(10)->delete(self::BASE_URL."/webhooks/{$applicationId}/{$interactionToken}/messages/@original");
         } catch (Throwable $e) {
             report($e);
+            PluginLog::error('a Discord API request failed', ['exception' => $e->getMessage()]);
 
             return false;
         }
 
         if ($response->failed()) {
-            Log::warning('discord-integration: failed to delete an interaction response', [
+            PluginLog::warning('failed to delete an interaction response', [
                 'status' => $response->status(),
                 'body' => $response->body(),
             ]);
@@ -514,13 +515,14 @@ class DiscordBotClient
                 : $client->{$method}(self::BASE_URL.$path, $payload);
         } catch (Throwable $e) {
             report($e);
+            PluginLog::error('a Discord API request failed', ['exception' => $e->getMessage(), 'method' => $method, 'path' => $path]);
 
             return null;
         }
 
         if ($response->failed()) {
             if (! in_array($response->status(), $silentStatuses, true)) {
-                Log::warning('discord-integration: Discord Bot API call failed', [
+                PluginLog::warning('Discord Bot API call failed', [
                     'method' => $method,
                     'path' => $path,
                     'status' => $response->status(),
