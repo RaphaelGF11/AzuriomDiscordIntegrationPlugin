@@ -72,6 +72,7 @@
     @include('discord-integration::admin.partials.discord-picker-modal')
     @include('discord-integration::admin.partials.command-builder-scripts')
     @include('discord-integration::admin.partials.script-editor-scripts')
+    @include('discord-integration::admin.partials.script-editor-extensions')
 
     @push('footer-scripts')
         <script>

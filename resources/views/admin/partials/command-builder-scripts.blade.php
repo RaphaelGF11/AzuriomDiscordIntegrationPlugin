@@ -12,6 +12,35 @@
     serializing to its hidden <input> (see CustomCommand's docblock for the
     exact JSON shapes) on every change - individual field edits mutate the
     array in place without a full re-render, so typing doesn't lose focus.
+
+    Also the JS-side half of the plugin extension API (see PHP's own
+    Support\ScriptExtensions docblock for the full picture and a PHP-side
+    registration example): another plugin's own <script> (loaded via
+    admin.partials.script-editor-extensions, once window.CommandBuilder
+    below already exists) calls:
+
+        CommandBuilder.registerActionType('my_plugin_give_xp', {
+            label: 'Give XP',
+            renderFields: function (block, container, ctx) {
+                // Populate `container` with this block's field inputs,
+                // mutating `block` and calling ctx.onChange() on every
+                // change - the exact same convention every built-in leaf
+                // action's own field renderer follows just below. Fields
+                // read/write directly on `block` (no nested "config"
+                // object), and any field left undefined the first time
+                // this runs should be defaulted here (mutate + onChange()),
+                // the same way e.g. modify_variable's own renderer does for
+                // "operation" - there is no separate factory function for a
+                // freshly-added block.
+            },
+        });
+
+    registerConditionType() is the same shape, for an "if" block's
+    condition picker instead. Both types show up in the palette/dropdowns
+    exactly like a built-in one, are draggable/orderable the same way, and
+    their block type is rejected at PHP registration time if it collides
+    with a built-in name (see ScriptExtensions::RESERVED_TYPES) - there is
+    no separate JS-side collision list to keep in sync with that one.
 --}}
 @push('footer-scripts')
     <script>
@@ -350,6 +379,56 @@
                 'modify_balance', 'run_artisan_command', 'show_modal',
             ];
 
+            // type -> {label, renderFields} - see this file's own top
+            // docblock for the registration shape and contract.
+            const registeredActionTypes = {};
+            const registeredConditionTypes = {};
+
+            function registerActionType(type, definition) {
+                if (ACTION_TYPES.includes(type) || registeredActionTypes[type]) {
+                    console.error('CommandBuilder: action type "' + type + '" is already registered, ignoring.');
+
+                    return;
+                }
+
+                registeredActionTypes[type] = definition;
+            }
+
+            function registerConditionType(type, definition) {
+                if (CONDITION_TYPES.includes(type) || registeredConditionTypes[type]) {
+                    console.error('CommandBuilder: condition type "' + type + '" is already registered, ignoring.');
+
+                    return;
+                }
+
+                registeredConditionTypes[type] = definition;
+            }
+
+            // Built-in types first, then registered ones in registration
+            // order - what the palette/dropdowns iterate over instead of
+            // the bare ACTION_TYPES/CONDITION_TYPES constants.
+            function allActionTypes() {
+                return ACTION_TYPES.concat(Object.keys(registeredActionTypes));
+            }
+
+            function allConditionTypes() {
+                return CONDITION_TYPES.concat(Object.keys(registeredConditionTypes));
+            }
+
+            /**
+             * A block/condition type's label - a built-in's own translated
+             * ctx.labels entry if there is one, else a registered
+             * extension's own (already-localized, PHP-side) "label", else
+             * the raw type as a last-resort fallback.
+             */
+            function actionLabel(type, ctx) {
+                return ctx.labels.blockTypes[type] || (registeredActionTypes[type] || {}).label || type;
+            }
+
+            function conditionLabel(type, ctx) {
+                return (ctx.labels.conditionTypes || {})[type] || (registeredConditionTypes[type] || {}).label || type;
+            }
+
             /**
              * Renders one condition's type-specific fields (a fresh
              * sub-tree, replaced whenever the condition's type changes) -
@@ -482,6 +561,10 @@
                 }
 
                 // linked_account has no extra configuration.
+
+                if (registeredConditionTypes[condition.type]) {
+                    registeredConditionTypes[condition.type].renderFields(condition, container, ctx);
+                }
             }
 
             /**
@@ -679,8 +762,8 @@
                 const headerRow = el('div', 'd-flex gap-2 align-items-center mb-2');
 
                 const typeSelect = el('select', 'form-select form-select-sm');
-                CONDITION_TYPES.forEach(function (type) {
-                    const opt = el('option', null, {value: type, textContent: ctx.labels.conditionTypes[type]});
+                allConditionTypes().forEach(function (type) {
+                    const opt = el('option', null, {value: type, textContent: conditionLabel(type, ctx)});
                     opt.selected = condition.type === type;
                     typeSelect.appendChild(opt);
                 });
@@ -1099,6 +1182,10 @@
                     // so there's nothing meaningful to capture.
                     return;
                 }
+
+                if (registeredActionTypes[block.type]) {
+                    registeredActionTypes[block.type].renderFields(block, container, ctx);
+                }
             }
 
             return {
@@ -1118,6 +1205,13 @@
                 renderConditionList: renderConditionList,
                 renderConditionGroups: renderConditionGroups,
                 renderActionConfigFields: renderActionConfigFields,
+                renderResultVariableField: renderResultVariableField,
+                registerActionType: registerActionType,
+                registerConditionType: registerConditionType,
+                allActionTypes: allActionTypes,
+                allConditionTypes: allConditionTypes,
+                actionLabel: actionLabel,
+                conditionLabel: conditionLabel,
             };
         })();
     </script>

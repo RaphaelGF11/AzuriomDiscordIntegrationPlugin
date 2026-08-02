@@ -78,7 +78,7 @@ class CommandConditionEvaluator
             'discord_role' => $this->hasDiscordRole($user, $condition['guild_id'], $condition['role_id']),
             'linked_account' => $user->discordAccount !== null,
             'compare' => $this->matchesCompare($state, $condition),
-            default => false,
+            default => ScriptExtensions::evaluateCondition($condition['type'] ?? '', $condition, $state),
         };
 
         return ($condition['negate'] ?? false) ? ! $result : $result;

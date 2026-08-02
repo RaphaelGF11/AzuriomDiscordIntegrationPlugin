@@ -4,6 +4,7 @@ namespace Azuriom\Plugin\DiscordIntegration\Support\Concerns;
 
 use Azuriom\Models\Role;
 use Azuriom\Plugin\DiscordIntegration\Support\DiscordBotClient;
+use Azuriom\Plugin\DiscordIntegration\Support\ScriptExtensions;
 use Azuriom\Plugin\Shop\Models\Package;
 use Illuminate\Support\Facades\Artisan;
 
@@ -48,6 +49,11 @@ trait BuildsScriptEditorContext
                 ->sort()
                 ->values()
                 ->map(fn ($name) => ['name' => $name, 'dangerous' => $this->isDangerousCommand($name)]),
+            // Other plugins' own registered script action/condition types -
+            // see Support\ScriptExtensions. Each asset URL registers its
+            // type(s) on window.CommandBuilder once <script>-included (see
+            // admin.partials.script-editor-extensions).
+            'scriptExtensionAssets' => ScriptExtensions::assetUrls(),
         ];
     }
 

@@ -2,7 +2,7 @@
     "id": "discord-integration",
     "name": "Discord Integration",
     "description": "Allows users to log in or register using their Discord account, reusing the existing Discord role-linking system.",
-    "version": "0.8.0",
+    "version": "0.9.0",
     "url": "https://github.com/RaphaelGF11/AzuriomDiscordIntegrationPlugin",
     "authors": [
         "RaphaelGF11"

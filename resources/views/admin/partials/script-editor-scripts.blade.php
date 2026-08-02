@@ -51,7 +51,7 @@
              * command-script.blade.php vs. form-script.blade.php).
              */
             function visibleActionTypes(ctx) {
-                return CB.ACTION_TYPES.filter(function (type) {
+                return CB.allActionTypes().filter(function (type) {
                     return type !== 'show_modal' || ctx.allowShowModal;
                 });
             }
@@ -85,6 +85,13 @@
                     case 'run_artisan_command': return {id: id, type: type, command: '', parameters: []};
                     case 'show_modal': return {id: id, type: type, form_id: null};
                 }
+
+                // A registered extension action type (see CB.registerActionType)
+                // - its own renderFields() is expected to lazily default any
+                // field it needs on first render, the same convention
+                // modify_variable's built-in renderer above already follows
+                // for "operation".
+                return {id: id, type: type};
             }
 
             /**
@@ -305,7 +312,7 @@
 
                     types.forEach(function (type) {
                         const card = CB.el('div', 'border rounded p-2 mb-1 small script-palette-item ' + categoryClass(type), {
-                            textContent: ctx.labels.blockTypes[type] || type,
+                            textContent: CB.actionLabel(type, ctx),
                             draggable: true,
                         });
                         card.addEventListener('dragstart', function (e) {
@@ -442,7 +449,7 @@
                 const select = CB.el('select', 'form-select form-select-sm w-auto');
 
                 CONTROL_TYPES.concat(VARIABLE_TYPES).concat(visibleActionTypes(ctx)).forEach(function (type) {
-                    const opt = CB.el('option', null, {value: type, textContent: ctx.labels.blockTypes[type] || type});
+                    const opt = CB.el('option', null, {value: type, textContent: CB.actionLabel(type, ctx)});
                     select.appendChild(opt);
                 });
 
@@ -508,7 +515,7 @@
 
             function renderBlockHeader(block, ctx) {
                 const header = CB.el('div', 'd-flex align-items-center gap-2 mb-2');
-                header.appendChild(CB.el('span', 'fw-semibold small', {textContent: ctx.labels.blockTypes[block.type] || block.type}));
+                header.appendChild(CB.el('span', 'fw-semibold small', {textContent: CB.actionLabel(block.type, ctx)}));
                 header.appendChild(CB.el('div', 'flex-grow-1'));
                 header.appendChild(CB.removeButton(function () {
                     removeById(ctx.rootSequence, block.id);

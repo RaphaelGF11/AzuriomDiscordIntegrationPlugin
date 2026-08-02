@@ -247,7 +247,7 @@ class CommandScriptRunner
                 'give_shop_packages' => $this->giveShopPackages($block, $state->user),
                 'modify_balance' => $this->modifyBalance($block, $state),
                 'run_artisan_command' => $this->runArtisanCommand($block, $state),
-                default => null,
+                default => ScriptExtensions::runAction($block['type'] ?? '', $block, $state),
             };
 
             $this->storeResult($block, $result, $state);
